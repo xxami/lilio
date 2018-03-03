@@ -1,51 +1,47 @@
 
-#include "liliom.h"
+#pragma comment(lib, "interception.lib")
+
+#define WINVER 0x0501
+#define _WIN32_WINNT 0x0501
+#define WIN32_LEAN_AND_MEAN
+
 #include <stdio.h>
 #include <stdlib.h>
-
-HHOOK kb_hook;
-
-HWND GetWindowHandle(void);
-void RegisterRawInputForKeyboards(const HWND my_window);
-void InitializeWindow(HINSTANCE hinstance);
-LRESULT CALLBACK KeyboardHookEvent(int ncode, WPARAM wparam, LPARAM lparam);
+#include <windows.h>
+#include "interception.h"
 
 int main(void) {
-  printf("-- lilio: manager --");
-  const HWND my_window = GetWindowHandle();
-  RegisterRawInputForKeyboards(my_window);
-  const HINSTANCE hinstance = (HINSTANCE) GetWindowLong(my_window, GWL_HINSTANCE);
-  InitializeWindow(hinstance);
-  kb_hook = SetWindowsHookEx(WH_KEYBOARD, KeyboardHookEvent, NULL, 0);
-  MSG msg;
-  PeekMessage(&msg, NULL, 0, 0, PM_REMOVE);
-  while (msg.message != WM_QUIT) {
-    while (PeekMessage(&msg, NULL, 0, 0, PM_REMOVE) > 0) {
-      TranslateMessage(&msg);
-      DispatchMessage(&msg);
+  SetPriorityClass(GetCurrentProcess(), HIGH_PRIORITY_CLASS);
+  const InterceptionContext context = interception_create_context();
+  interception_set_filter(context, interception_is_keyboard, INTERCEPTION_FILTER_KEY_DOWN);
+
+  InterceptionDevice p1dev;
+  InterceptionStroke p1stroke;
+  BOOL ready = FALSE;
+  printf("liliom:setup\n");
+  printf("press card-in key on p1 device to continue\n");
+
+  InterceptionDevice device;
+  InterceptionStroke stroke;
+  while (interception_receive(context,
+    device = interception_wait(context), &stroke, 1) > 0) {
+    if (interception_is_keyboard(device)) {
+      if (!ready) {
+        p1dev = device;
+        memcpy(p1stroke, stroke, sizeof stroke);
+        ready = TRUE;
+        printf("p1 device had been configured :)");
+      }
+      else {
+        const InterceptionKeyStroke keystroke = *(InterceptionKeyStroke *)&stroke;
+        if (keystroke.code == 0x01) {
+          interception_send(context, p1dev, &p1stroke, 1);
+        }
+      }
     }
+    interception_send(context, device, &stroke, 1);
   }
+
+  interception_destroy_context(context);
   return 0;
-}
-
-LRESULT CALLBACK KeyboardHookEvent(int ncode, WPARAM wparam, LPARAM lparam) {
-  return CallNextHookEx(kb_hook, ncode, wparam, lparam);
-}
-
-HWND GetWindowHandle(void) {
-  char title[256];
-  GetConsoleTitleA(title, 256);
-  return FindWindowA(NULL, title);
-}
-
-void RegisterRawInputForKeyboards(const HWND my_window) {
-  RAWINPUTDEVICE rid[1];
-  rid[0].usUsagePage = 1;
-  rid[0].usUsage = 6;
-  rid[0].dwFlags = RIDEV_INPUTSINK;
-  rid[0].hwndTarget = my_window;
-  RegisterRawInputDevices(rid, 1, sizeof rid[0]);
-}
-
-void InitializeWindow(HINSTANCE hinstance) {
 }
